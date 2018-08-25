@@ -23,7 +23,26 @@ EAE <- Vectorize(function(x, y) {isTRUE(all.equal(x, y))})
 # Setup date stuff
 library('bizdays')
 library('quantmod')
-cal.begin       = "2010-01-01"
+library('PerformanceAnalytics')
+library('scales')
+library('httr')
+library('futile.logger')
+
+# HaveNetwork: check to see if we have network connectivity and stop if not
+HaveNetwork = function() {
+  my.site      = "https://www.google.com"
+  my.response  = GET(my.site)
+  if (my.response$status_code != 200) {
+    flog.fatal("Non-200 response from Google. Aborting. Actual code:%s",
+               my.response$status_code)
+    stop(paste(("Non-200 response from Google. Aborting. Actual code:"),
+               my.response$status_code))
+  }
+}
+
+HaveNetwork()
+
+cal.begin       = "2010-01-01" # TODO support shorter date ranges
 cal.end         = "2019-01-01"
 my.holidays     = c('2010-01-01', '2010-01-18', '2010-02-15',
                     '2010-04-02', '2010-05-31', '2010-07-05',
@@ -69,11 +88,13 @@ oisuf.values = as.xts(oisuf.raw[,2], order.by=as.Date(oisuf.raw[,1]))
 kOisufThresh = -200
 kDTRThresh   = 0.5
 kSlippage    = -0.20  # a dime per side entry/exit
-kContracts   = 20     # 1/100 for normal mode
-kInitBalance = 100000 # 100 for normal mode
+kContracts   = 5     # 1/100 for academic mode
+kInitBalance = 27000 # 100 for academic mode
 
 
 # Choose 1TPX or 1TPS
+# 1TPX = 1 trade per execution. Only one trade allowed open at a time
+# 1TPS = 1 trade per signal. Open a new trade every day.
 global.mode = "1TPX"
 
 # PickByDelta: return an index of x that has the closest value to y. if there
@@ -125,7 +146,7 @@ OptionQuotesCsv = function(options.file) {
 EnrichOptionsQuotes = function(my.df) {
   my.df = my.df[!is.na(my.df$Date),]
   my.df = my.df[!is.na(my.df$Bid),]
-  my.df = my.df[!is.na(my.df$Asked),]
+  my.df = my.df[!is.na(my.df$Asked),] # OptionVue now calls this Ask not Asked
   my.df = my.df[!grepl("D\\d{1,2}$", my.df$Symbol, perl = TRUE),]
   my.df = my.df[!grepl("\\d{4}(26|27|28|29|30|31)", my.df$Exp.Date),]
   
@@ -177,7 +198,7 @@ FindBWB = function(my.df, is.list = FALSE) {
 
 # redo data load with many files. filename format is mandatory and 
 # only works for 3 letter symbols (e.g. SYM): SYMYYYYMMDDHHMM.csv
-file.names     = list.files(pattern="*.csv")
+file.names     = list.files(path=my.sym, pattern="/*.csv")
 my.data        = rep(list(), length(file.names))
 
 for (i in 1:length(file.names)) {
@@ -466,6 +487,13 @@ for (l in 2010:2016) {
   print(paste(l, (as.numeric(last(perf[paste(l)], "1 day")) - 
            as.numeric(first(perf[paste(l)], "1 day"))) / as.numeric(first(perf[paste(l)], "1 day"))))
 }
+
+closed.balance = cumsum(x.stats$Closed.P.L)
+paste("CAGR: ",
+      percent(
+        (as.double(closed.balance[nrow(closed.balance),])
+         /
+           kInitBalance)^(1/(2017-2010))-1))
 
 
 
