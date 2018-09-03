@@ -88,9 +88,9 @@ oisuf.values = as.xts(oisuf.raw[,2], order.by=as.Date(oisuf.raw[,1]))
 kOisufThresh = -200
 kDTRThresh   = 0.5
 kSlippage    = -0.20  # a dime per side entry/exit
-kContracts   = 5     # 1/100 for academic mode
+kContracts   = 3     # 1/100 for academic mode
 kInitBalance = 27000 # 100 for academic mode
-
+kMaxLoss     = 0.02 * kInitBalance # 2% of starting balance
 
 # Choose 1TPX or 1TPS
 # 1TPX = 1 trade per execution. Only one trade allowed open at a time
@@ -146,7 +146,7 @@ OptionQuotesCsv = function(options.file) {
 EnrichOptionsQuotes = function(my.df) {
   my.df = my.df[!is.na(my.df$Date),]
   my.df = my.df[!is.na(my.df$Bid),]
-  my.df = my.df[!is.na(my.df$Asked),] # OptionVue now calls this Ask not Asked
+  my.df = my.df[!is.na(my.df$Ask),] # OptionVue now calls this Ask not Asked
   my.df = my.df[!grepl("D\\d{1,2}$", my.df$Symbol, perl = TRUE),]
   my.df = my.df[!grepl("\\d{4}(26|27|28|29|30|31)", my.df$Exp.Date),]
   
@@ -156,7 +156,7 @@ EnrichOptionsQuotes = function(my.df) {
                         my.exp.date,
                         my.cal)
   cal.dte     = as.numeric(my.exp.date - my.iso.date)
-  mid.price   = (my.df$Bid + my.df$Asked) / 2
+  mid.price   = (my.df$Bid + my.df$Ask) / 2 # OptionVue now calls this Ask not Asked
   return(cbind(my.df, my.iso.date, my.exp.date, biz.dte, cal.dte, mid.price))
 }
 
@@ -198,12 +198,14 @@ FindBWB = function(my.df, is.list = FALSE) {
 
 # redo data load with many files. filename format is mandatory and 
 # only works for 3 letter symbols (e.g. SYM): SYMYYYYMMDDHHMM.csv
-file.names     = list.files(path=my.sym, pattern="/*.csv")
+#file.names     = list.files(path=my.sym, pattern="/*.csv") # old data (2016)
+file.names     = list.files(path=paste(my.sym, "-new", sep=""), 
+                            pattern="/*.csv") # new data (2018)
 my.data        = rep(list(), length(file.names))
 
 for (i in 1:length(file.names)) {
   my.data[[i]] = EnrichOptionsQuotes(
-                  OptionQuotesCsv(paste(my.sym, "/", file.names[i], sep=""))
+                  OptionQuotesCsv(paste(paste(my.sym, "-new", sep=""), "/", file.names[i], sep=""))
   )
   my.data[[i]] = my.data[[i]][order(my.data[[i]]$Symbol),]
 }
@@ -235,8 +237,10 @@ ShouldExit = function(my.df, my.date) {
   #if (days.open < 7)
   #  return(FALSE)
   #else if (abs(sum(my.df$Delta * my.df[,1]) / sum(my.df[,1] * my.df$Theta)) > 0.5)
-  if (FindDTR(my.df) > kDTRThresh)
-      return(TRUE)
+  if (FloatingProfit(my.df) < (kMaxLoss * -1))
+    return(TRUE)
+  else if (FindDTR(my.df) > kDTRThresh)
+    return(TRUE)
   #else if (my.df[2,16] < -50 || my.df[2,16] > -30) # middle strike always 2nd
   #  return(TRUE)
   #else if (my.df[3,16] < -80 || my.df[3,16] > -40) # upper strike always 3rd
@@ -251,7 +255,9 @@ ShouldExit = function(my.df, my.date) {
 ExitReason = function(my.df, my.date) {
   if (is.null(my.cal) || !exists("my.cal")) # should check dates too
     stop("global calendar (my.cal) does not exist or is NULL")
-  if (FindDTR(my.df) > kDTRThresh) 
+  if (FloatingProfit(my.df) < (kMaxLoss * -1))
+    return(paste("0: max loss"))
+  else if (FindDTR(my.df) > kDTRThresh) 
     return(paste("1: DTR > ", kDTRThresh))
   #else if (my.df[2,16] < -50 || my.df[2,16] > -30) # middle strike always 2nd
   #  return(paste("2: middle (40) strike outside limits")) #, my.df[2,16])) #dbug
@@ -455,11 +461,11 @@ df.stats = data.frame(
 
 # Plot the floating and closed profit
 plot(1:nrow(df.stats), 
-     cumsum(df.stats$Closed.P.L) + df.stats$Open.P.L, 
+     kInitBalance + cumsum(df.stats$Closed.P.L) + df.stats$Open.P.L, 
      type='l', 
      col='red')
 lines(1:nrow(df.stats), 
-      cumsum(df.stats$Closed.P.L))
+      kInitBalance + cumsum(df.stats$Closed.P.L))
 
 df.closed.trades = do.call('rbind', closed.trades)
 
@@ -473,6 +479,8 @@ if (sum.losses == 0) {
               " OISUF level: ", kOisufThresh))
   print(paste("N trades: ", total.trades, 
               " Profit factor: ", abs(sum.wins / sum.losses), sep=""))
+  print(paste("# contracts:", kContracts,
+              " Max loss:", kMaxLoss))
   print(data.frame(summary(df.closed.trades$reason)))
 }
 
@@ -489,11 +497,16 @@ for (l in 2010:2016) {
 }
 
 closed.balance = cumsum(x.stats$Closed.P.L)
-paste("CAGR: ",
+print(paste("CAGR: ",
       percent(
-        (as.double(closed.balance[nrow(closed.balance),])
+        (as.double(kInitBalance + closed.balance[nrow(closed.balance),])
          /
-           kInitBalance)^(1/(2017-2010))-1))
+           kInitBalance)^(1/(2017-2010))-1)))
+
+# loss analysis
+sort(df.closed.trades[df.closed.trades$close.profit < (-1*kMaxLoss),]$close.profit)
+mean(df.closed.trades[df.closed.trades$close.profit < (-1*kMaxLoss),]$close.profit)
+length(df.closed.trades[df.closed.trades$close.profit < (-1*kMaxLoss),]$close.profit)
 
 
 
