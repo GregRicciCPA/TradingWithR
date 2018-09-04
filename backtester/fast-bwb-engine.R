@@ -129,7 +129,12 @@ PickByDelta = function(my.deltas, my.value) {
 #   my.df = get.quotes.csv("SPX", 20170320, 1530)
 OptionQuotesCsv = function(options.file) {
   my.data       = read.csv(options.file)
-  return(my.data[-1,]) # first row is underlying. use price.quotes for that
+  if (length(grep("Index", my.data$Description)) > 1) {
+    stop(paste("Data error: Input file ", options.file," had multiple exports",
+               sep=""))
+  } else {
+    return(my.data[-1,]) # first row is underlying. use price.quotes for that
+  }
 }
 
 # EnrichOptionsQuotes: return the option quotes df with some extra info
