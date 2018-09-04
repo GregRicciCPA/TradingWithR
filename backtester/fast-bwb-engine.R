@@ -205,7 +205,11 @@ my.data        = rep(list(), length(file.names))
 
 for (i in 1:length(file.names)) {
   my.data[[i]] = EnrichOptionsQuotes(
-                  OptionQuotesCsv(paste(paste(my.sym, "-new", sep=""), "/", file.names[i], sep=""))
+                  OptionQuotesCsv(
+                    paste(
+                      paste(my.sym, "-new", sep=""),
+                      "/",
+                      file.names[i], sep=""))
   )
   my.data[[i]] = my.data[[i]][order(my.data[[i]]$Symbol),]
 }
@@ -304,7 +308,8 @@ TradeSummary = function(my.df, my.date) {
                     close.profit  = FloatingProfit(my.df)+kSlippage,
                     cal.days.open = as.numeric(my.date - my.df[1,]$my.iso.date),
                     close.date    = my.date,
-                    dtr           = abs(sum(my.df$Delta * my.df[,1]) / sum(my.df[,1] * my.df$Theta)))
+                    dtr           = abs(sum(my.df$Delta * my.df[,1]) /
+                                        sum(my.df[,1] * my.df$Theta)))
   return(as.data.frame(trade.data))
 }
 
@@ -433,12 +438,20 @@ for (i in 88:(length(my.data)-1)) {
   # in 1 TPX backtest, use ShouldEnter()
   # if FindCondor returns NULL, this shouldn't do anything (I think?)
   potential.bfly = FindBWB(my.data[[i]])
-  if (global.mode == "1TPX" && as.numeric(oisuf.values[names(my.data)[i]]) > kOisufThresh && ShouldEnter(open.trades, my.data[[i]]) && !is.null(potential.bfly) && nrow(potential.bfly) == 3 && FindDTR(potential.bfly) < 0.5) {
-    open.trades[[length(open.trades) + 1]] = potential.bfly
-    total.trades = total.trades + 1
-  } else if (global.mode == "1TPS" && !is.null(potential.bfly) && as.numeric(oisuf.values[names(my.data)[i]]) > kOisufThresh && nrow(potential.bfly) == 3 && FindDTR(potential.bfly) < 0.5) {
-    open.trades[[length(open.trades) + 1]] = potential.bfly
-    total.trades = total.trades + 1
+  if (global.mode == "1TPX"
+      && as.numeric(oisuf.values[names(my.data)[i]]) > kOisufThresh
+      && ShouldEnter(open.trades, my.data[[i]])
+      && !is.null(potential.bfly) && nrow(potential.bfly) == 3
+      && FindDTR(potential.bfly) < 0.5) {
+        open.trades[[length(open.trades) + 1]] = potential.bfly
+        total.trades = total.trades + 1
+  } else if (global.mode == "1TPS"
+             && !is.null(potential.bfly)
+             && as.numeric(oisuf.values[names(my.data)[i]]) > kOisufThresh
+             && nrow(potential.bfly) == 3
+             && FindDTR(potential.bfly) < 0.5) {
+                open.trades[[length(open.trades) + 1]] = potential.bfly
+                total.trades = total.trades + 1
   }
   
   # Record the floating profit
