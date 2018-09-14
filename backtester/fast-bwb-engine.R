@@ -15,6 +15,9 @@
 #   2.  Check for what's expected (did you read in july quotes in january?)
 #   3.  Check for too many things across total input and each month
 #   4.  Check for too few things across total input and each month
+#   3-4b. Check you have an option chain date for every day in my.cal?
+#   5.  Check you have an OISUF for every option chain date
+#   6.  Is InitialCredit() wild because of price errors or inefficiency?
 
 
 # Use EAE() instead of == on floating point numbers
@@ -85,10 +88,11 @@ my.sym = "SPX"
 getSymbols(my.sym, src="csv")
 oisuf.raw    = read.csv("oisuf-spx-all.csv") # 2004-2017
 oisuf.values = as.xts(oisuf.raw[,2], order.by=as.Date(oisuf.raw[,1]))
+
 kOisufThresh = -200
 kDTRThresh   = 0.5
 kSlippage    = -0.20  # a dime per side entry/exit
-kContracts   = 3     # 1/100 for academic mode
+kContracts   = 2     # 1/100 for academic mode
 kInitBalance = 27000 # 100 for academic mode
 kMaxLoss     = 0.02 * kInitBalance # 2% of starting balance
 
@@ -201,26 +205,6 @@ FindBWB = function(my.df, is.list = FALSE) {
   }
 }
 
-# redo data load with many files. filename format is mandatory and 
-# only works for 3 letter symbols (e.g. SYM): SYMYYYYMMDDHHMM.csv
-#file.names     = list.files(path=my.sym, pattern="/*.csv") # old data (2016)
-file.names     = list.files(path=paste(my.sym, "-new", sep=""), 
-                            pattern="/*.csv") # new data (2018)
-my.data        = rep(list(), length(file.names))
-
-for (i in 1:length(file.names)) {
-  my.data[[i]] = EnrichOptionsQuotes(
-                  OptionQuotesCsv(
-                    paste(
-                      paste(my.sym, "-new", sep=""),
-                      "/",
-                      file.names[i], sep=""))
-  )
-  my.data[[i]] = my.data[[i]][order(my.data[[i]]$Symbol),]
-}
-
-names(my.data) = as.Date(substr(file.names, 4, 11), "%Y%m%d")
-
 # find floating profit given df of open trades w/ column orig.price
 FloatingProfit = function(trades) {
   floating.profit = (trades[,27] - trades[,28]) * trades[,1]
@@ -237,8 +221,34 @@ FindDTR = function(my.df) {
   abs(sum(my.df[,16] * my.df[,1]) / sum(my.df[,1] * my.df[,19]))
 }
 
+# check the prices in your current quote (whole thing or maybe one trade)
+# input:
+#         my.df - any quote in data frame format w/ columns mid.price, Th.Price
+#         amount - how much percent difference to alert on (default 0.10 = 10%)
+# output: TRUE/FALSE depending on if any prices are off from their theoritcal
+#         prices by too much.
+#         TRUE  => everything is OK
+#         FALSE => prices are too far off
+# example:
+#   df$mid.price = c(1, 2, 3)
+#   df$theo.price = c(1.05, 2.1, 3.2)
+#   OKPrices(df) = TRUE
+#   --
+#   df$mid.price = c(1, 2, 3)
+#   df$theo.price = c(1.3, 2.2, 3.3)
+#   OKPrices(df) = FALSE # 1.3 > 10% * 1.0
+OKPrices = function(my.df, amount = 0.10) {
+  final    = my.df$mid.price
+  initial  = my.df$Th.Price
+  whack.prices = abs(((final-initial)/initial)) > rep(amount, nrow(my.df))
+  if (any(whack.prices)) {
+    return(FALSE)
+  } else {
+    return(TRUE)
+  }
+}
 # see if exit conditions are met for a given condor, xts underlying, char date
-####### What are results without the strike changes?
+####### TODO What are results without the strike changes?
 ShouldExit = function(my.df, my.date) {
   if (is.null(my.cal) || !exists("my.cal")) # should check dates too
     stop("global calendar (my.cal) does not exist or is NULL")
@@ -265,7 +275,7 @@ ExitReason = function(my.df, my.date) {
   if (is.null(my.cal) || !exists("my.cal")) # should check dates too
     stop("global calendar (my.cal) does not exist or is NULL")
   if (FloatingProfit(my.df) < (kMaxLoss * -1))
-    return(paste("0: max loss"))
+    return(paste("0: Max loss"))
   else if (FindDTR(my.df) > kDTRThresh) 
     return(paste("1: DTR > ", kDTRThresh))
   #else if (my.df[2,16] < -50 || my.df[2,16] > -30) # middle strike always 2nd
@@ -314,9 +324,42 @@ TradeSummary = function(my.df, my.date) {
                     cal.days.open = as.numeric(my.date - my.df[1,]$my.iso.date),
                     close.date    = my.date,
                     dtr           = abs(sum(my.df$Delta * my.df[,1]) /
-                                        sum(my.df[,1] * my.df$Theta)))
+                                          sum(my.df[,1] * my.df$Theta)))
   return(as.data.frame(trade.data))
 }
+
+# helper function to see what data in the quote is off from theoretical price
+# input is the "i" value in the main backtest loop
+SeeBadData = function(iterator) {
+  foo = my.data[[iterator]]
+  bar = foo$mid.price - foo$Th.Price
+  baz = bar / foo$Th.Price
+  plot(baz)
+}
+
+################## LOAD DATA ##################
+# redo data load with many files. filename format is mandatory and 
+# only works for 3 letter symbols (e.g. SYM): SYMYYYYMMDDHHMM.csv
+#file.names     = list.files(path=my.sym, pattern="/*.csv") # old data (2016)
+file.names     = list.files(path=paste(my.sym, "-new", sep=""), 
+                            pattern="/*.csv") # new data (2018)
+my.data        = rep(list(), length(file.names))
+
+for (i in 1:length(file.names)) {
+  my.data[[i]] = EnrichOptionsQuotes(
+                  OptionQuotesCsv(
+                    paste(
+                      paste(my.sym, "-new", sep=""),
+                      "/",
+                      file.names[i], sep=""))
+  )
+  # 6-4-2 only uses puts. Shave some time off of the sort.
+  my.data[[i]] = subset(my.data[[i]], Call.Put == "P")
+  # Sort to be safe
+  my.data[[i]] = my.data[[i]][order(my.data[[i]]$Symbol),]
+}
+
+names(my.data) = as.Date(substr(file.names, 4, 11), "%Y%m%d")
 
 # Other trade keeping method:
 #   1.  If there's an open trade, copy the current day's quote into the open 
@@ -327,7 +370,7 @@ TradeSummary = function(my.df, my.date) {
 #   4.  Need to add the final P/L to total equity somehow otherwise you never
 #       book profit.
 
-
+################## SIMULATION START ##################
 # Every day:
 #   1.  Update current trade prices to today's quotes
 #   2.  Decide if we should exit them
@@ -358,14 +401,18 @@ open.trades    = list()
 closed.trades  = list()
 
 # 2015-09-08 had fucked up price on SEP 1300 calls, fixed by hand in csv
+# 2013-02-08 has fucked up prices on APR 1515 puts, set to 33.50/33.65 by hand
 # main backtest loop for now, operates on days
 # symbols change names at i=29, delta messed up at i < 88
 #profvis({
 #system.time(
 for (i in 88:(length(my.data)-1)) { 
   #browser()
-  #if (i > 780) browser()
+  #if (i > 694) browser()
   # steps 1 through 3b, operates on open trades
+  if (median(diff(sort(unique(my.data[[i]]$Strike.Price)))) > 5) {
+    stop(paste("Quote for", names(my.data)[i], "lacks 5-point wide strikes"))
+  }
   if (length(open.trades) > 0) { # don't run w/ 0 trades open
     # create indicies of today's trades to exit
     to.exit = rep(FALSE, length(open.trades)) # ignore quote df w/ FALSE
@@ -379,6 +426,7 @@ for (i in 88:(length(my.data)-1)) {
       num.true  = length(to.update[to.update == TRUE])
       if (num.true <= 3) {
         if (num.true < 3) {
+          #browser()
           num.inc.quotes = num.inc.quotes + 1
           symbols.to.update    = my.data[[i]][to.update,]$Symbol
           tmp.update           = subset(open.trades[[j]], 
@@ -396,13 +444,24 @@ for (i in 88:(length(my.data)-1)) {
           open.trades[[j]] = open.trades[[j]][order(
                                 open.trades[[j]]$Symbol),]
         } else {
-          # TODO how do you know what order this is in?
-          open.trades[[j]]$mid.price = my.data[[i]][to.update,]$mid.price
-          open.trades[[j]]$Delta     = my.data[[i]][to.update,]$Delta
-          open.trades[[j]]$Gamma     = my.data[[i]][to.update,]$Gamma
-          open.trades[[j]]$Vega      = my.data[[i]][to.update,]$Vega
-          open.trades[[j]]$Theta     = my.data[[i]][to.update,]$Theta
-          open.trades[[j]]$Rho       = my.data[[i]][to.update,]$Rho
+            # check for too big of price differences
+            final        = my.data[[i]][to.update,]$mid.price
+            initial      = open.trades[[j]]$mid.price
+            whack.prices = abs(((final-initial)/initial)) > rep(0.75, 3)
+            check.prices = F # (F)/T = (don't) stop for big price changes
+            if (any(whack.prices) && check.prices) {
+              print(c(names(my.data[i]), 
+                      "Price to update very far off from current price."),
+                    whack.prices)
+            } else {
+              # TODO how do you know what order this is in?
+              open.trades[[j]]$mid.price = my.data[[i]][to.update,]$mid.price
+              open.trades[[j]]$Delta     = my.data[[i]][to.update,]$Delta
+              open.trades[[j]]$Gamma     = my.data[[i]][to.update,]$Gamma
+              open.trades[[j]]$Vega      = my.data[[i]][to.update,]$Vega
+              open.trades[[j]]$Theta     = my.data[[i]][to.update,]$Theta
+              open.trades[[j]]$Rho       = my.data[[i]][to.update,]$Rho
+            }
         }
         # exit if 90% profit, 200% loss, 5 days till exp, short strike touch
         if (ShouldExit(open.trades[[j]], names(my.data)[i]))
@@ -443,10 +502,15 @@ for (i in 88:(length(my.data)-1)) {
   # in 1 TPX backtest, use ShouldEnter()
   # if FindCondor returns NULL, this shouldn't do anything (I think?)
   potential.bfly = FindBWB(my.data[[i]])
-  if (global.mode == "1TPX"
+  # next check isn't in main check yet cause still working on what i want
+  # to do about actual data being messed up
+  if (!is.null(potential.bfly) && !OKPrices(potential.bfly))
+    stop("Price too far from theoretical")
+  if (global.mode == "1TPX" 
       && as.numeric(oisuf.values[names(my.data)[i]]) > kOisufThresh
       && ShouldEnter(open.trades, my.data[[i]])
-      && !is.null(potential.bfly) && nrow(potential.bfly) == 3
+      && !is.null(potential.bfly)
+      && nrow(potential.bfly) == 3
       && FindDTR(potential.bfly) < 0.5) {
         open.trades[[length(open.trades) + 1]] = potential.bfly
         total.trades = total.trades + 1
@@ -532,6 +596,3 @@ length(df.closed.trades[df.closed.trades$close.profit < (-1*kMaxLoss),]$close.pr
 # top10 = function(my.df) {
 #   print(sort(my.df$Percent.O.U, decreasing=T)[1:10])
 # }
-
-
-
