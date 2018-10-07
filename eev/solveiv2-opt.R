@@ -772,7 +772,7 @@ fTrueOptPrice = function(underly, new.underly,
 #   b) use ATM IV on new price but calcIV on old price? 0.5528924
 #   c) use ATM IV on new price but estimated IV on old price? 0.5971447
 #   d) use estimated IV on new price and calcIV on old price? 0.5518446
-#       ^ this one makes the most intuitive sense but is way low
+#       ^ this one makes the most intuitive sense but is still wrong
 #   e) no change in IV only underlying (use CalcIV): 0.5950201
 #   f) no change in IV only underlying (use CalcIV): 0.5950201
 #
@@ -790,6 +790,7 @@ fTrueOptPrice = function(underly, new.underly,
 #  fNormIV(7, 1, 6, toOpt[11], 0.5872025)
 # [1] 0.2975512
 # so IV rose more for the -1 dollar than it did the +1 dollar, which makes sense
+# OR DOES IT? Should IV go down for the +1 move or is that only indicies?
 # do you get a new skew? 
 #   then put that in the new festniv? 
 #     then put that in agg iv?
