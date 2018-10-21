@@ -392,16 +392,26 @@ portfolio.stats           = rep(0, 9)
 dim(portfolio.stats)      = c(1, 9)
 colnames(portfolio.stats) = stats
 
+# 2010 2010-02-12 2010-12-31
+# 2011 2011-01-03 2011-12-30
+# 2012 2012-01-03 2012-12-31
+# 2013 2013-01-02 2013-12-31
+# 2014 2014-01-02 2014-12-31
+# 2015 2015-01-02 2015-12-31
+# 2016 2016-01-04 2016-12-29
+# 2017 2017-01-03 2017-12-29
+# 2018 2018-01-02 2018-05-31
 sim.date.start = "2010-02-12" # earliest is "2010-02-12"
-sim.date.end   = "2010-12-31" # latest is "2018-05-31"
+sim.date.end   = "2018-05-31" # latest is "2018-05-31"
 # Only run sim for dates given:
 i.start = which(names(my.data) == sim.date.start)
-i.end   = which(names(my.data) == sim.date.end) # 2018-05-31
+i.end   = which(names(my.data) == sim.date.end) # max 2018-05-31
 if (length(i.start) == 0 || length(i.end) == 0)
   stop(paste("One date is not a trading day:", sim.date.start, sim.date.end))
 
-my.stats         = rep(list(portfolio.stats), (i.end-i.start+1)) #obob
-names(my.stats)  = names(my.data[i.start:i.end])
+# keeping stats as the whole list for now
+my.stats         = rep(list(portfolio.stats), length(my.data))
+names(my.stats)  = names(my.data)
 
 total.trades   = 0
 num.inc.quotes = 0
@@ -417,7 +427,7 @@ closed.trades  = list()
 #system.time(
 for (i in i.start:i.end) { # 27 starts new symbol names 2010-02-11
   #browser()
-  #if (i > 694) browser()
+  #if (i > 136) browser()
   # steps 1 through 3b, operates on open trades
   if (median(diff(sort(unique(my.data[[i]]$Strike.Price)))) > 5) {
     stop(paste("Quote for", names(my.data)[i], "lacks 5-point wide strikes"))
@@ -429,7 +439,7 @@ for (i in i.start:i.end) { # 27 starts new symbol names 2010-02-11
       # if you ever close a trade before getting done with this loop
       # j will be ahead of the number of entries. check that.
       if (j > length(open.trades)) break
-      # update today's trades with today's quotes
+      # update open trades with today's quotes
       # if your quoted symbols aren't there, raise error
       to.update = my.data[[i]]$Symbol %in% open.trades[[j]]$Symbol
       num.true  = length(to.update[to.update == TRUE])
@@ -549,20 +559,20 @@ df.stats = data.frame(
               byrow=T, 
               dimnames=list(names(my.stats)[-length(my.stats)], 
                             colnames(portfolio.stats))))
-
+df.stats.sub = df.stats[i.start:i,]
 # Plot the floating and closed profit
-plot(1:nrow(df.stats), 
-     kInitBalance + cumsum(df.stats$Closed.P.L) + df.stats$Open.P.L, 
-     type='l', 
+plot(i.start:i,
+     kInitBalance + cumsum(df.stats.sub$Closed.P.L) + df.stats.sub$Open.P.L,
+     type='l',
      col='red')
-lines(1:nrow(df.stats), 
-      kInitBalance + cumsum(df.stats$Closed.P.L))
+lines(i.start:i,
+      kInitBalance + cumsum(df.stats.sub$Closed.P.L))
 
 df.closed.trades = do.call('rbind', closed.trades)
 
 # Profit factor
-sum.wins   = sum(subset(df.stats, Closed.P.L > 0)$Closed.P.L)
-sum.losses = sum(subset(df.stats, Closed.P.L < 0)$Closed.P.L)
+sum.wins   = sum(subset(df.stats.sub, Closed.P.L > 0)$Closed.P.L)
+sum.losses = sum(subset(df.stats.sub, Closed.P.L < 0)$Closed.P.L)
 if (sum.losses == 0) {
   print("Profit factor: inf.")
 } else {
@@ -578,11 +588,11 @@ if (sum.losses == 0) {
 #} # OISUF threshold loop
 
 
-x.stats = as.xts(df.stats)
+x.stats = as.xts(df.stats.sub)
 perf = kInitBalance + cumsum(x.stats$Closed.P.L) + x.stats$Open.P.L
 charts.PerformanceSummary(ROC(perf))
 
-for (l in 2010:2016) {
+for (l in 2010:2018) {
   print(paste(l, (as.numeric(last(perf[paste(l)], "1 day")) - 
            as.numeric(first(perf[paste(l)], "1 day"))) / as.numeric(first(perf[paste(l)], "1 day"))))
 }
