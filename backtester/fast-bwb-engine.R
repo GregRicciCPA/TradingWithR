@@ -392,21 +392,30 @@ portfolio.stats           = rep(0, 9)
 dim(portfolio.stats)      = c(1, 9)
 colnames(portfolio.stats) = stats
 
-my.stats         = rep(list(portfolio.stats), length(my.data))
-names(my.stats)  = names(my.data)
+sim.date.start = "2010-02-12" # earliest is "2010-02-12"
+sim.date.end   = "2010-12-31" # latest is "2018-05-31"
+# Only run sim for dates given:
+i.start = which(names(my.data) == sim.date.start)
+i.end   = which(names(my.data) == sim.date.end) # 2018-05-31
+if (length(i.start) == 0 || length(i.end) == 0)
+  stop(paste("One date is not a trading day:", sim.date.start, sim.date.end))
+
+my.stats         = rep(list(portfolio.stats), (i.end-i.start+1)) #obob
+names(my.stats)  = names(my.data[i.start:i.end])
 
 total.trades   = 0
 num.inc.quotes = 0
 open.trades    = list()
 closed.trades  = list()
 
+# Data before 2010-02-10 has different symbol names.
 # 2015-09-08 had fucked up price on SEP 1300 calls, fixed by hand in csv
 # 2013-02-08 has fucked up prices on APR 1515 puts, set to 33.50/33.65 by hand
 # main backtest loop for now, operates on days
 # symbols change names at i=29, delta messed up at i < 88
 #profvis({
 #system.time(
-for (i in 88:(length(my.data)-1)) { 
+for (i in i.start:i.end) { # 27 starts new symbol names 2010-02-11
   #browser()
   #if (i > 694) browser()
   # steps 1 through 3b, operates on open trades
