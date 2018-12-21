@@ -46,7 +46,7 @@ HaveNetwork = function() {
 HaveNetwork()
 
 cal.begin       = "2010-01-01" # TODO support shorter date ranges
-cal.end         = "2019-01-01"
+cal.end         = "2019-12-31" # Have data until 2018-12-20
 my.holidays     = c('2010-01-01', '2010-01-18', '2010-02-15',
                     '2010-04-02', '2010-05-31', '2010-07-05',
                     '2010-09-06', '2010-11-25', '2010-12-24',
@@ -74,7 +74,10 @@ my.holidays     = c('2010-01-01', '2010-01-18', '2010-02-15',
                     '2018-01-01', '2018-01-15', '2018-02-19',
                     '2018-03-30', '2018-05-28', '2018-07-04',
                     '2018-09-03', '2018-11-22', '2018-12-25',
-                    '2019-01-01')
+                    '2019-01-01', '2019-01-21', '2019-02-18',
+                    '2019-04-19', '2019-05-27', '2019-07-04',
+                    '2019-09-02', '2019-11-28', '2019-12-25',
+                    '2020-01-01')
 # sample bizdays call: bizdays("2014-01-02", "2014-01-21", mycal) = 12
 # Set up calendar
 my.cal = create.calendar(holidays = my.holidays, 
@@ -88,6 +91,17 @@ my.sym = "SPX"
 getSymbols(my.sym, src="csv")
 oisuf.raw    = read.csv("oisuf-spx-all.csv") # 2004-2017
 oisuf.values = as.xts(oisuf.raw[,2], order.by=as.Date(oisuf.raw[,1]))
+
+# easily get and set oisuf values you don't have
+# library(timeDate)
+# tS = timeSequence(from=as.Date("2018-06-02"), to=as.Date("2018-12-20"))
+# my.weekdays = isBizday(tS)
+# my.bizdays = as.character(tS[my.weekdays])
+# added.oisuf = rep(0, length(my.bizdays))
+# new.oisuf = as.xts(added.oisuf, order.by=as.Date(my.bizdays))
+# oisuf.values = rbind(oisuf.values, new.oisuf)
+
+
 
 kOisufThresh = -200
 kDTRThresh   = 0.5
@@ -355,7 +369,7 @@ for (i in 1:length(file.names)) {
   )
   # 6-4-2 only uses puts. Shave some time off of the sort.
   my.data[[i]] = subset(my.data[[i]], Call.Put == "P")
-  # Sort to be safe
+  # Sort to be safe (safe??)
   my.data[[i]] = my.data[[i]][order(my.data[[i]]$Symbol),]
 }
 
@@ -400,12 +414,12 @@ colnames(portfolio.stats) = stats
 # 2015 2015-01-02 2015-12-31
 # 2016 2016-01-04 2016-12-29
 # 2017 2017-01-03 2017-12-29
-# 2018 2018-01-02 2018-05-31
+# 2018 2018-01-02 2018-12-20
 sim.date.start = "2010-02-12" # earliest is "2010-02-12"
-sim.date.end   = "2018-05-31" # latest is "2018-05-31"
+sim.date.end   = "2018-12-20" # latest is "2018-12-20"
 # Only run sim for dates given:
 i.start = which(names(my.data) == sim.date.start)
-i.end   = which(names(my.data) == sim.date.end) # max 2018-05-31
+i.end   = which(names(my.data) == sim.date.end) # max 2018-12-20
 if (length(i.start) == 0 || length(i.end) == 0)
   stop(paste("One date is not a trading day:", sim.date.start, sim.date.end))
 
@@ -438,7 +452,10 @@ for (i in i.start:i.end) { # 27 starts new symbol names 2010-02-11
     for (j in 1:length(open.trades)) {
       # if you ever close a trade before getting done with this loop
       # j will be ahead of the number of entries. check that.
-      if (j > length(open.trades)) break
+      if (j > length(open.trades)) {
+        cat("something went wrong")
+        break
+      }
       # update open trades with today's quotes
       # if your quoted symbols aren't there, raise error
       to.update = my.data[[i]]$Symbol %in% open.trades[[j]]$Symbol
@@ -576,7 +593,7 @@ sum.losses = sum(subset(df.stats.sub, Closed.P.L < 0)$Closed.P.L)
 if (sum.losses == 0) {
   print("Profit factor: inf.")
 } else {
-  print(paste("From: ", cal.begin, " To: ", cal.end,  
+  print(paste("From: ", sim.date.start, " To: ", sim.date.end,  
               " OISUF level: ", kOisufThresh))
   print(paste("N trades: ", total.trades, 
               " Profit factor: ", abs(sum.wins / sum.losses), sep=""))
