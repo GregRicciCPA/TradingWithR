@@ -24,14 +24,13 @@ eWrapper.opt <- function(n) {
                                                              "askIV","askDelta",
                                                              "bidPrice","askPrice",
                                                              "lastPrice")))),n))
-  # THIS IS A FUNCTION. Who calls it? When?
+  # THIS IS A FUNCTION. processMsg() calls this
   eW$tickPrice <- function(curMsg, msg, timestamp, file, ...) {
     tickType = msg[3]
     msg <- as.numeric(msg)
     id <- msg[2] #as.numeric(msg[2])
     myData <- eW$get.Data("myData") #[[1]]  # list position of symbol (by id == msg[2])
-    attr(myData[[id]],"index") <- as.numeric(Sys.time())
-    #    myData[[1]] <- rbind(myData[[1]],.xts(matrix(rep(NA_real_,7),nc=7), Sys.time()))
+    myData[[1]] <- rbind(myData[[1]],.xts(matrix(rep(NA_real_,17),nc=17), Sys.time()))
     nr.myData <- NROW(myData[[id]])
     #myData[[id]][1] <- as.numeric(Sys.time()) #timestamp
     # 0  1 2     3   4 5 6 7 8   9  10  11 12  13
