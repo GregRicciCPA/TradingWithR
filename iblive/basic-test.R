@@ -1,3 +1,5 @@
+# TODO record a stream and replay it? how much does that fuck with custom stuff?
+
 library('IBrokers')
 setwd('iblive')
 source('ibrokers-includes.R')
@@ -7,7 +9,10 @@ source('eWrapper.opt.R')
 live.port  = 7497
 paper.port = 7496
 
-tws = twsConnect(port = live.port) # 7497 = live, 7496 = paper
+# Connect to IB Gateway client
+gateway.port = 4001
+
+tws = twsConnect(port = gateway.port) # 7497 = live, 7496 = paper, 4001 = gtway
 
 # Check if connected
 if (!isConnected(tws))
@@ -36,8 +41,8 @@ my.expiry = "20190117"
 # single put at strike and expiration
 my.opts   = twsOption(local = "", right = "P", symbol = my.symbol, 
                       strike = my.strike, expiry = my.expiry)
-# all puts and calls and strikes at one expiration
-spx.full = twsOption(local = "", right = "", symbol = my.symbol, 
+# all puts and strikes at one expiration
+spx.full = twsOption(local = "", right = "P", symbol = my.symbol, 
                      expiry = my.expiry)
 
 if (!is.twsContract(my.opts))
@@ -46,10 +51,20 @@ if (!is.twsContract(my.opts))
 spx.quotes = reqContractDetails(tws, my.opts) # 150MB of data or 130 
 # more data
 spx.full.quotes = reqContractDetails(tws, spx.full)
+# exercise: get all strikes in order
+list.strikes = character(0)
+for (i in 1:length(spx.full.quotes)) {
+  list.strikes = c(list.strikes, spx.full.quotes[[i]]$contract$strike)
+}
+list.strikes = as.integer(list.strikes)
+list.strikes = sort(list.strikes)
 
 # get a quote chain for a single option
 first.option = spx.quotes[[1]] # specific expiration, calls only
 
+# works but never exits
+reqMktData(tws, first.option$contract)
+reqMktData(tws, first.option)
 # twsCALLBACK calls processMsg()
 # processMsg() calls ???
 # can you just pass eventTickOption = eWrapper.opt$tickData to reqMktData?
@@ -68,15 +83,20 @@ option.deets = reqMktData(tws,
                           first.option$contract,
                           CALLBACK = snapShot(tws, eWrapper=eWrapper.opt))
 # works but wrong data points
-reqMktData(tws, first.option, snapshot = TRUE)
+reqMktData(tws, first.option$contract, snapshot = TRUE)
 
 # works but not offline. first 20 options in the chain
 reqMktData(tws, 
-           spx.full.quotes[1:20], 
-           eventWrapper = eWrapper.data(20),
+           spx.full.quotes[1:2], 
+           eventWrapper = eWrapper.data(2),
            CALLBACK = so.snapShot) #named 'so' from stackoverflow
 # Historical data API endpoints for options doesn't work
 
+# does this work?
+reqMktData(tws, 
+           first.option$contract, 
+           eventWrapper = eWrapper.opt(1), 
+           CALLBACK = myCallback)
 # Close connection
 twsDisconnect(tws)
 

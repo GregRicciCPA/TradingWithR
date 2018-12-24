@@ -55,7 +55,8 @@ snapShot = function (twsCon, eWrapper, timestamp, file, playback = 1, ...)
   } 
 } 
 
-so.snapShot <- function (twsCon, eWrapper, timestamp, file, playback = 1, ...)
+# renamed to myCallback from so.snapShot cause that conflates things
+myCallback <- function (twsCon, eWrapper, timestamp, file, playback = 1, ...)
 {
   if (missing(eWrapper))
     eWrapper <- eWrapper()
