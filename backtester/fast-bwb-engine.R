@@ -30,6 +30,7 @@ library('PerformanceAnalytics')
 library('scales')
 library('httr')
 library('futile.logger')
+library('parallel')
 
 # HaveNetwork: check to see if we have network connectivity and stop if not
 HaveNetwork = function() {
@@ -93,27 +94,35 @@ oisuf.raw    = read.csv("oisuf-spx-all.csv") # 2004-2017
 oisuf.values = as.xts(oisuf.raw[,2], order.by=as.Date(oisuf.raw[,1]))
 
 # easily get and set oisuf values you don't have
-# library(timeDate)
-# tS = timeSequence(from=as.Date("2018-06-02"), to=as.Date("2018-12-20"))
-# my.weekdays = isBizday(tS)
-# my.bizdays = as.character(tS[my.weekdays])
-# added.oisuf = rep(0, length(my.bizdays))
-# new.oisuf = as.xts(added.oisuf, order.by=as.Date(my.bizdays))
-# oisuf.values = rbind(oisuf.values, new.oisuf)
+library(timeDate)
+tS = timeSequence(from=as.Date("2018-06-02"), to=as.Date("2018-12-20"))
+my.weekdays = isBizday(tS)
+my.bizdays = as.character(tS[my.weekdays])
+added.oisuf = rep(0, length(my.bizdays))
+new.oisuf = as.xts(added.oisuf, order.by=as.Date(my.bizdays))
+oisuf.values = rbind(oisuf.values, new.oisuf)
 
+#Choose 1TPX or 1TPS
+#1TPX = 1 trade per execution. Only one trade allowed open at a time
+#1TPS = 1 trade per signal. Open a new trade every day.
 
-
+# setup for real world path-dependent test:
 kOisufThresh = -200
 kDTRThresh   = 0.5
 kSlippage    = -0.20  # a dime per side entry/exit
-kContracts   = 2     # 1/100 for academic mode
-kInitBalance = 27000 # 100 for academic mode
+kContracts   = 3      # 1/100 for academic mode
+kInitBalance = 40000  # 100 for academic mode
 kMaxLoss     = 0.02 * kInitBalance # 2% of starting balance
+global.mode  = "1TPX"
 
-# Choose 1TPX or 1TPS
-# 1TPX = 1 trade per execution. Only one trade allowed open at a time
-# 1TPS = 1 trade per signal. Open a new trade every day.
-global.mode = "1TPX"
+#path-independent test with 100k and 1 contract and 0.01 slippage
+# kOisufThresh = -200
+# kDTRThresh   = 0.5
+# kSlippage    = -0.01  # a dime per side entry/exit
+# kContracts   = 1      # 1/100 for academic mode
+# kInitBalance = 100000 # 100 for academic mode
+# kMaxLoss     = 270    # $270/contract to match real money mode
+# global.mode = "1TPS"
 
 # PickByDelta: return an index of x that has the closest value to y. if there
 #              is a tie, return the first one you come to. This function
@@ -214,15 +223,17 @@ FindBWB = function(my.df, is.list = FALSE) {
     # Existing.Posn is NA by default, so this works but is not intuitive:
     my.open.trades = my.df[!is.na(my.df[,1]),]
     # add new $orig.price column for later
-    my.open.trades[,28] = my.open.trades[,27] # orig price = mid price
+    my.open.trades$orig.price = my.open.trades[,27] # orig price = mid price
     return(my.open.trades)
   }
 }
 
 # find floating profit given df of open trades w/ column orig.price
+# TODO this should have num contracts and slippage passed in, not 
+# read from global
 FloatingProfit = function(trades) {
   floating.profit = (trades[,27] - trades[,28]) * trades[,1]
-  floating.profit = sum(floating.profit)*kContracts*100
+  floating.profit = sum(floating.profit, kSlippage)*kContracts*100
 }
 
 # find initial credit given df of open trades w/ column orig.price
@@ -261,6 +272,26 @@ OKPrices = function(my.df, amount = 0.10) {
     return(TRUE)
   }
 }
+
+# check the exit price you're about to record
+# input:
+#         my.df - quote in data frame format w/ column mid.price
+#         amount - how low you want to alarm on (default = 0)
+# output:
+#         TRUE/FALSE depending on if prices are equal to or below amount
+#         TRUE => everything is OK
+#         FALSE => price is off (probably a bad quote)
+# example:
+#         df$mid.price = c(1, 2, 3)
+#         OKExit(df) = TRUE
+#         df$mid.price = c(1, 0, 3)
+#         OKExit(df) = FALSE
+OKExit = function(my.df, amount = 0) {
+  zeroes = my.df$mid.price <= amount
+  if(any(zeroes)) return(FALSE)
+  else return(TRUE)
+}
+
 # see if exit conditions are met for a given condor, xts underlying, char date
 ####### TODO What are results without the strike changes?
 ShouldExit = function(my.df, my.date) {
@@ -334,7 +365,7 @@ TradeSummary = function(my.df, my.date) {
                     exp.month     = substr(my.df[1,]$Description, 1, 3),
                     strikes       = toString(my.df$Strike.Price),
                     init.debit    = InitialCredit(my.df),
-                    close.profit  = FloatingProfit(my.df)+kSlippage,
+                    close.profit  = FloatingProfit(my.df),
                     cal.days.open = as.numeric(my.date - my.df[1,]$my.iso.date),
                     close.date    = my.date,
                     dtr           = abs(sum(my.df$Delta * my.df[,1]) /
@@ -351,27 +382,40 @@ SeeBadData = function(iterator) {
   plot(baz)
 }
 
+# function to help parallelize data reading
+ReadAFile = function(myFilename, symbol.name) {
+  foo = EnrichOptionsQuotes(
+          OptionQuotesCsv(
+            paste(
+              paste(symbol.name, "-new", sep=""),
+              "/",
+              myFilename, sep="")))
+  foo = subset(foo, Call.Put == "P")
+  foo = foo[order(foo$Symbol),]
+  return(foo)
+}
+
 ################## LOAD DATA ##################
 # redo data load with many files. filename format is mandatory and 
 # only works for 3 letter symbols (e.g. SYM): SYMYYYYMMDDHHMM.csv
 #file.names     = list.files(path=my.sym, pattern="/*.csv") # old data (2016)
 file.names     = list.files(path=paste(my.sym, "-new", sep=""), 
                             pattern="/*.csv") # new data (2018)
-my.data        = rep(list(), length(file.names))
+my.data        = mclapply(file.names, ReadAFile, symbol.name=my.sym, mc.cores=4)
 
-for (i in 1:length(file.names)) {
-  my.data[[i]] = EnrichOptionsQuotes(
-                  OptionQuotesCsv(
-                    paste(
-                      paste(my.sym, "-new", sep=""),
-                      "/",
-                      file.names[i], sep=""))
-  )
-  # 6-4-2 only uses puts. Shave some time off of the sort.
-  my.data[[i]] = subset(my.data[[i]], Call.Put == "P")
-  # Sort to be safe (safe??)
-  my.data[[i]] = my.data[[i]][order(my.data[[i]]$Symbol),]
-}
+# for (i in 1:length(file.names)) {
+#   my.data[[i]] = EnrichOptionsQuotes(
+#                   OptionQuotesCsv(
+#                     paste(
+#                       paste(my.sym, "-new", sep=""),
+#                       "/",
+#                       file.names[i], sep=""))
+#   )
+#   # 6-4-2 only uses puts. Shave some time off of the sort.
+#   my.data[[i]] = subset(my.data[[i]], Call.Put == "P")
+#   # Sort to be safe (safe?!? TODO figure out what's truly 'safe')
+#   my.data[[i]] = my.data[[i]][order(my.data[[i]]$Symbol),]
+# }
 
 names(my.data) = as.Date(substr(file.names, 4, 11), "%Y%m%d")
 
@@ -513,11 +557,14 @@ for (i in i.start:i.end) { # 27 starts new symbol names 2010-02-11
     # use cumsum() later to build an equity curve
     if (length(to.exit[to.exit == TRUE]) > 0) {
       # record profit as closed
+      #browser()
       my.stats[[i]][6] = sum(unlist(lapply(open.trades[to.exit], 
-                                           FloatingProfit)),
-                             kSlippage)
+                                           FloatingProfit)))
       # add to trade log
       for (k in 1:length(open.trades[to.exit])) {
+        #if (OKExit(open.trades[to.exit][[k]]$mid.price)) {
+        #  print("Zero price quotes on exit", as.Date(names(my.data)[i]))
+        #}
         reason = ExitReason(open.trades[to.exit][[k]], 
                             names(my.data)[i])
         entry.date = open.trades[to.exit][[k]][1,23]
@@ -560,9 +607,7 @@ for (i in i.start:i.end) { # 27 starts new symbol names 2010-02-11
   }
   
   # Record the floating profit
-  my.stats[[i]][7] = sum(unlist(lapply(open.trades, 
-                                       FloatingProfit)),
-                         kSlippage)
+  my.stats[[i]][7] = sum(unlist(lapply(open.trades, FloatingProfit)))
   # Something something portfolio stats something
   
 }
@@ -610,25 +655,32 @@ perf = kInitBalance + cumsum(x.stats$Closed.P.L) + x.stats$Open.P.L
 charts.PerformanceSummary(ROC(perf))
 
 for (l in 2010:2018) {
-  print(paste(l, (as.numeric(last(perf[paste(l)], "1 day")) - 
-           as.numeric(first(perf[paste(l)], "1 day"))) / as.numeric(first(perf[paste(l)], "1 day"))))
+  jan.1.bal  = as.numeric(first(perf[paste(l)], "1 day"))
+  dec.31.bal = as.numeric(last(perf[paste(l)], "1 day"))
+  print(paste(l, (dec.31.bal - jan.1.bal) / jan.1.bal))
 }
 
 closed.balance = cumsum(x.stats$Closed.P.L)
-print(paste("CAGR: ",
+print(paste("2010-2018 CAGR: ",
       percent(
         (as.double(kInitBalance + closed.balance[nrow(closed.balance),])
          /
-           kInitBalance)^(1/(2017-2010))-1)))
+           kInitBalance)^(1/(2018-2010))-1))) # hardcoded dates :(
 
 # loss analysis
 sort(df.closed.trades[df.closed.trades$close.profit < (-1*kMaxLoss),]$close.profit)
 mean(df.closed.trades[df.closed.trades$close.profit < (-1*kMaxLoss),]$close.profit)
 length(df.closed.trades[df.closed.trades$close.profit < (-1*kMaxLoss),]$close.profit)
+n.wins   = length(unlist(subset(df.closed.trades, close.profit > 0, close.profit)))
+n.losses = length(unlist(subset(df.closed.trades, close.profit < 0, close.profit)))
+avg.win  = mean(unlist(subset(df.closed.trades, close.profit > 0, close.profit)))
+avg.loss = mean(unlist(subset(df.closed.trades, close.profit < 0, close.profit)))
+print(paste("Avg win:", sprintf("%.2f", avg.win)))
+print(paste("Avg loss:", sprintf("%.2f", avg.loss)))
+print(paste("W/L Ratio:", sprintf("%.2f", abs(avg.win/avg.loss))))
+print(paste("Win %:", sprintf("%.1f%%", 100*n.wins/(n.wins+n.losses))))
 
-
-
-
+lagged.returns = Delt(perf, type="arithmetic")
 # top10 = function(my.df) {
 #   print(sort(my.df$Percent.O.U, decreasing=T)[1:10])
 # }
