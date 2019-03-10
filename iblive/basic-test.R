@@ -36,8 +36,8 @@ if (is.null(positions)) {
 # Set security
 #spx = twsIndex(symbol = "SPX", exch = "SMART") # not for options?
 my.symbol = "SPX"
-my.strike = 2435
-my.expiry = "20190117"
+my.strike = 2735
+my.expiry = "20190417"
 # single put at strike and expiration
 my.opts   = twsOption(local = "", right = "P", symbol = my.symbol, 
                       strike = my.strike, expiry = my.expiry)
@@ -58,6 +58,8 @@ for (i in 1:length(spx.full.quotes)) {
 }
 list.strikes = as.integer(list.strikes)
 list.strikes = sort(list.strikes)
+
+#reqMktData(tws, my.opts[[1]], CALLBACK=NULL, file="SPX.dat")
 
 # get a quote chain for a single option
 first.option = spx.quotes[[1]] # specific expiration, calls only
